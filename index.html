@@ -3,50 +3,49 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Robust Universal Video Player</title>
+    <title>Advanced Multi-Proxy WASM Player</title>
     <script src="coi-serviceworker.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/dplayer/dist/DPlayer.min.css">
     <style>
-        body { background: linear-gradient(135deg, #030712 0%, #111827 100%); }
-        .glow { box-shadow: 0 0 15px rgba(6, 182, 212, 0.3); }
+        body { background: linear-gradient(135deg, #020617 0%, #0b1329 100%); }
     </style>
 </head>
 <body class="text-slate-100 min-h-screen flex flex-col items-center justify-center p-4 antialiased">
 
-    <div class="w-full max-w-4xl bg-slate-900/95 border border-slate-800 rounded-2xl shadow-2xl p-6 space-y-6 glow">
+    <div class="w-full max-w-4xl bg-slate-900/95 border border-slate-800 rounded-2xl shadow-2xl p-6 space-y-6">
         
         <div class="text-center space-y-1">
             <h1 class="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-indigo-400 bg-clip-text text-transparent">
-                यूनिवर्सल ऑटो-डिकोडर प्लेयर
+                यूनिवर्सल ऑटो-डिकोडर (वर्शन 2.0)
             </h1>
-            <p class="text-xs text-slate-400">सभी बग्स फिक्स - ऑटोमैटिक CORS बायपास और लाइव प्रोग्रेस ट्रैकर</p>
+            <p class="text-xs text-slate-400">मल्टी-प्रॉक्सी नेटवर्क और सिक्योर रैम डिकोडिंग इनेबल्ड</p>
         </div>
 
         <div class="flex flex-col md:flex-row gap-3">
             <input 
                 type="text" 
                 id="videoUrl" 
-                placeholder="यहाँ अपना डायरेक्ट वीडियो लिंक (MKV, x265, Cloudflare Workers) पेस्ट करें..." 
+                placeholder="यहाँ अपना MKV, x265 या Cloudflare Workers लिंक डालें..." 
                 class="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 text-slate-200"
             />
             <button 
-                onclick="processAndPlayVideo()" 
-                class="bg-cyan-600 hover:bg-cyan-500 text-white font-semibold px-6 py-3 rounded-xl transition cursor-pointer text-sm whitespace-nowrap active:scale-95 shadow-md"
+                onclick="startSmartProcessing()" 
+                class="bg-cyan-600 hover:bg-cyan-500 text-white font-semibold px-6 py-3 rounded-xl transition cursor-pointer text-sm whitespace-nowrap active:scale-95"
             >
-                प्ले करें
+                स्मार्ट प्ले करें
             </button>
         </div>
 
         <div id="dashboard" class="hidden bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-4 font-mono text-xs">
             <div class="flex justify-between border-b border-slate-900 pb-2">
-                <span class="text-slate-400">सिस्टम इंजन स्थिति:</span>
-                <span id="engineStatus" class="text-yellow-400 font-bold">कनेक्ट हो रहा है...</span>
+                <span class="text-slate-400">इंजन स्टेटस:</span>
+                <span id="engineStatus" class="text-yellow-400 font-bold">तैयार...</span>
             </div>
 
             <div class="space-y-1">
                 <div class="flex justify-between text-[11px]">
-                    <span class="text-cyan-400">➔ बफ़र डाउनलोड स्थिति:</span>
+                    <span class="text-cyan-400">➔ नेटवर्क डेटा बफ़र:</span>
                     <span id="downloadText" class="text-slate-300">0 MB</span>
                 </div>
                 <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
@@ -56,7 +55,7 @@
 
             <div class="space-y-1">
                 <div class="flex justify-between text-[11px]">
-                    <span class="text-indigo-400">➔ FFmpeg लाइव डिकोडिंग (MKV/x265 ➔ MP4):</span>
+                    <span class="text-indigo-400">➔ FFmpeg रैम डिकोडिंग:</span>
                     <span id="transcodeText" class="text-slate-300">0%</span>
                 </div>
                 <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
@@ -65,11 +64,11 @@
             </div>
 
             <div class="bg-black/40 border border-slate-900 rounded p-2 h-24 overflow-y-auto text-[10px] text-emerald-400 space-y-0.5" id="consoleLogs">
-                > सिस्टम कंसोल तैयार है...
+                > सिस्टम रेडी...
             </div>
         </div>
 
-        <div class="overflow-hidden rounded-xl border border-slate-800 bg-black aspect-video shadow-inner">
+        <div class="overflow-hidden rounded-xl border border-slate-800 bg-black aspect-video">
             <div id="dplayer" class="w-full h-full"></div>
         </div>
     </div>
@@ -82,27 +81,25 @@
         let ffmpeg = null;
         let dp = null;
 
-        // इनिशियल एम्प्टी प्लेयर स्क्रीन
-        dp = new DPlayer({
-            container: document.getElementById('dplayer'),
-            video: { url: '' },
-            theme: '#06b6d4'
-        });
+        // डिफ़ॉल्ट खाली स्क्रीन
+        dp = new DPlayer({ container: document.getElementById('dplayer'), video: { url: '' }, theme: '#06b6d4' });
 
-        function writeLog(text) {
-            const box = document.getElementById('consoleLogs');
-            box.innerHTML += `<div>> ${text}</div>`;
-            box.scrollTop = box.scrollHeight;
+        function printLog(text) {
+            const logBox = document.getElementById('consoleLogs');
+            logBox.innerHTML += `<div>> ${text}</div>`;
+            logBox.scrollTop = logBox.scrollHeight;
         }
 
-        async function processAndPlayVideo() {
-            let rawUrl = document.getElementById('videoUrl').value.trim();
-            if (!rawUrl) {
-                alert("कृपया पहले एक लिंक पेस्ट करें!");
+        async function startSmartProcessing() {
+            // SharedArrayBuffer चेक (ताकि यूजर को पता चले सुरक्षा लॉक खुला या नहीं)
+            if (typeof SharedArrayBuffer === "undefined") {
+                alert("सुरक्षा लॉक (SharedArrayBuffer) अभी अनलॉक नहीं हुआ है। कृपया पेज को Ctrl + F5 दबाकर हार्ड रीफ्रेश करें, फिर कोशिश करें।");
                 return;
             }
 
-            // डैशबोर्ड रीसेट करें
+            const rawUrl = document.getElementById('videoUrl').value.trim();
+            if (!rawUrl) return alert("कृपया लिंक डालें!");
+
             document.getElementById('dashboard').classList.remove('hidden');
             document.getElementById('downloadBar').style.width = '0%';
             document.getElementById('transcodeBar').style.width = '0%';
@@ -110,129 +107,121 @@
             document.getElementById('transcodeText').innerText = '0%';
             document.getElementById('consoleLogs').innerHTML = '';
 
-            document.getElementById('engineStatus').innerText = "🌐 नेटवर्क सुरक्षा बायपास चालू है...";
-            
-            // ऑटो-प्रॉक्सी लॉजिक: अगर लिंक में पहले से प्रॉक्सी नहीं है, तो कोड इसे खुद जोड़ देगा
-            let finalUrl = rawUrl;
-            if (!rawUrl.includes('corsproxy.io') && !rawUrl.includes('cors-anywhere')) {
-                finalUrl = "https://corsproxy.io/?" + encodeURIComponent(rawUrl);
-                writeLog("ऑटो-प्रॉक्सी सक्रिय: लिंक में सुरक्षित ब्रिज जोड़ा गया।");
+            // मल्टीपल प्रॉक्सी लिस्ट (अगर एक फेल होगी तो दूसरी काम करेगी)
+            const proxyList = [
+                (url) => "https://corsproxy.io/?" + encodeURIComponent(url),
+                (url) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(url),
+                (url) => "https://thingproxy.freeboard.io/fetch/" + url,
+                (url) => url // लास्ट ऑप्शन: बिना प्रॉक्सी डायरेक्ट लिंक
+            ];
+
+            let response = null;
+            let finalUsedUrl = "";
+            let chunks = [];
+            let receivedLength = 0;
+            let targetSize = 22 * 1024 * 1024; // 22MB बफ़र
+
+            // स्मार्ट नेटवर्क लूप: बेस्ट काम करने वाली प्रॉक्सी ढूँढना
+            for (let i = 0; i < proxyList.length; i++) {
+                finalUsedUrl = proxyList[i](rawUrl);
+                printLog(`नेटवर्क ब्रिज #${i + 1} का परीक्षण किया जा रहा है...`);
+                document.getElementById('engineStatus').innerText = `⚡ रूट #${i + 1} से कनेक्ट हो रहा है...`;
+
+                try {
+                    response = await fetch(finalUsedUrl);
+                    if (!response.ok) throw new Error("सर्वर रिस्पॉन्स फेल");
+                    
+                    const reader = response.body.getReader();
+                    chunks = [];
+                    receivedLength = 0;
+
+                    // डेटा डाउनलोड करना शुरू करें
+                    while(true) {
+                        const {done, value} = await reader.read();
+                        if (done) break;
+                        chunks.push(value);
+                        receivedLength += value.length;
+                        
+                        let currentMB = (receivedLength / (1024 * 1024)).toFixed(2);
+                        let pct = Math.min((receivedLength / targetSize) * 100, 100).toFixed(0);
+                        document.getElementById('downloadText').innerText = `${currentMB} MB`;
+                        document.getElementById('downloadBar').style.width = `${pct}%`;
+
+                        if (receivedLength >= targetSize) break;
+                    }
+                    reader.cancel();
+
+                    // 153 बाइट्स बग फिक्स: अगर डाउनलोड डेटा 500KB से कम है तो यह प्रॉक्सी अमान्य है
+                    if (receivedLength > 500 * 1024) {
+                        printLog(`सफलता! रूट #${i + 1} ने ${ (receivedLength/(1024*1024)).toFixed(2) } MB वैध मीडिया डेटा भेजा।`);
+                        break; // लूप से बाहर निकलें, क्योंकि सही डेटा मिल गया
+                    } else {
+                        printLog(`रूट #${i + 1} ने एरर टेक्स्ट भेजा (डेटा बहुत छोटा है)। अगला रूट आज़मा रहे हैं...`);
+                    }
+                } catch (e) {
+                    printLog(`रूट #${i + 1} ब्लॉक है या काम नहीं कर रहा।`);
+                }
             }
 
-            writeLog("FFmpeg डिकोडर कोर लोड किया जा रहा है...");
-            document.getElementById('engineStatus').innerText = "⏳ इंजन तैयार हो रहा है...";
+            if (receivedLength < 500 * 1024) {
+                document.getElementById('engineStatus').innerText = "❌ सभी नेटवर्क रूट ब्लॉक हैं";
+                printLog("त्रुटि: क्लाउडफ्लेयर ने सभी पब्लिक प्रॉक्सी को ब्लॉक कर दिया है।");
+                return alert("सभी नेटवर्क प्रॉक्सी ब्लॉक हो चुकी हैं। कृपया ब्राउज़र में CORS एक्सटेंशन ऑन करके डायरेक्ट चलाएं।");
+            }
 
-            try {
-                if (!ffmpeg) {
-                    ffmpeg = createFFmpeg({ log: false });
-                    
-                    // FFmpeg डिकोडिंग फ्रेम प्रोग्रेस कैप्चर करें
-                    ffmpeg.setLogger(({ type, message }) => {
-                        if (message.includes('frame=')) {
-                            document.getElementById('transcodeText').innerText = "वीडियो फ्रेम्स प्रोसेस हो रहे हैं...";
-                            document.getElementById('transcodeBar').style.width = '65%';
-                        }
-                        if(message.length < 80) writeLog(`[Core] ${message}`);
-                    });
-
-                    await ffmpeg.load();
-                }
-
-                writeLog("सुरक्षित कनेक्शन स्थापित। वीडियो चंक्स फेच किए जा रहे हैं...");
-                document.getElementById('engineStatus').innerText = "⚡ वीडियो बफ़र डाउनलोड हो रहा है...";
-
-                const response = await fetch(finalUrl);
-                const reader = response.body.getReader();
-                
-                let chunks = [];
-                let receivedLength = 0;
-                let targetSize = 20 * 1024 * 1024; // 20MB का इनिशियल बफ़र ब्लॉक
-
-                while(true) {
-                    const {done, value} = await reader.read();
-                    if (done) break;
-                    
-                    chunks.push(value);
-                    receivedLength += value.length;
-                    
-                    let currentMB = (receivedLength / (1024 * 1024)).toFixed(2);
-                    let percent = Math.min((receivedLength / targetSize) * 100, 100).toFixed(0);
-                    
-                    document.getElementById('downloadText').innerText = `${currentMB} MB`;
-                    document.getElementById('downloadBar').style.width = `${percent}%`;
-
-                    if (receivedLength >= targetSize) {
-                        writeLog(`सफलता: शुरुआती ${currentMB} MB डेटा बफ़र में स्टोर हुआ।`);
-                        break;
+            // --- FFmpeg लोडिंग और ट्रांसकोडिंग ---
+            document.getElementById('engineStatus').innerText = "⚙️ रैम डिकोडिंग चालू है...";
+            if (!ffmpeg) {
+                ffmpeg = createFFmpeg({ log: false });
+                ffmpeg.setLogger(({ message }) => {
+                    if (message.includes('frame=')) {
+                        document.getElementById('transcodeText').innerText = "फ्रेम प्रोसेसिंग चालू...";
+                        document.getElementById('transcodeBar').style.width = '70%';
                     }
-                }
-                reader.cancel(); // इनिशियल स्ट्रीम रोके
-
-                // 153 बाइट्स क्रैश फिक्स: डेटा चेक करना
-                if (receivedLength < 500 * 1024) { // अगर फाइल 500KB से कम है (यानी कोई टेक्स्ट एरर है)
-                    throw new Error("डाउनलोड किया गया डेटा बहुत छोटा है। सर्वर ने वीडियो ब्लॉक कर दिया है या लिंक अमान्य है।");
-                }
-
-                document.getElementById('engineStatus').innerText = "⚙️ लाइव क्रॉस-कोडिंग चालू है...";
-                writeLog("वर्चुअल रैम पर वीडियो फाइल इंजेक्ट की जा रही है...");
-
-                let finalUintArray = new Uint8Array(receivedLength);
-                let currentPos = 0;
-                for(let chunk of chunks) {
-                    finalUintArray.set(chunk, currentPos);
-                    currentPos += chunk.length;
-                }
-
-                ffmpeg.FS('writeFile', 'input_file.mkv', finalUintArray);
-                
-                document.getElementById('transcodeBar').style.width = '30%';
-                document.getElementById('transcodeText').innerText = 'डिकोडिंग सक्रिय...';
-                writeLog("FFmpeg कनवर्टर इंजन चालू (Fast-Start & Zero-Latency एक्टिव)...");
-
-                // बफ़रिंग को रोकने के लिए सबसे एडवांस कमांड
-                await ffmpeg.run(
-                    '-i', 'input_file.mkv',
-                    '-c:v', 'libx264',
-                    '-preset', 'ultrafast',
-                    '-tune', 'zerolatency',
-                    '-movflags', '+faststart',
-                    '-c:a', 'aac',
-                    'output_stream.mp4'
-                );
-
-                document.getElementById('transcodeBar').style.width = '100%';
-                document.getElementById('transcodeText').innerText = '100% पूरा हुआ';
-                document.getElementById('engineStatus').innerText = "▶️ वीडियो चालू है";
-                writeLog("सफलता! मीडिया ब्लॉब ऑब्जेक्ट तैयार हो रहा है...");
-
-                const data = ffmpeg.FS('readFile', 'output_stream.mp4');
-                const videoBlob = new Blob([data.buffer], { type: 'video/mp4' });
-                const blobUrl = URL.createObjectURL(videoBlob);
-
-                // पुराने प्लेयर को डिस्ट्रॉय कर नया मीडिया रेंडर करें
-                if (dp) dp.destroy();
-                
-                dp = new DPlayer({
-                    container: document.getElementById('dplayer'),
-                    autoplay: true,
-                    theme: '#06b6d4',
-                    screenshot: true,
-                    hotkey: true,
-                    video: {
-                        url: blobUrl,
-                        type: 'normal'
-                    }
+                    if(message.length < 80) printLog(`[FFmpeg] ${message}`);
                 });
-
-                dp.play();
-                writeLog("प्लेयर रेडी! वीडियो सफलतापूर्वक शुरू हो गया है।");
-
-            } catch (err) {
-                console.error(err);
-                document.getElementById('engineStatus').innerText = "❌ एरर आया";
-                writeLog(`क्रैश रिपोर्ट: ${err.message}`);
-                alert("वीडियो लोड करने में समस्या: " + err.message);
+                await ffmpeg.load();
             }
+
+            let fileBuffer = new Uint8Array(receivedLength);
+            let pos = 0;
+            for(let chunk of chunks) {
+                fileBuffer.set(chunk, pos);
+                pos += chunk.length;
+            }
+
+            ffmpeg.FS('writeFile', 'vid.mkv', fileBuffer);
+            document.getElementById('transcodeBar').style.width = '30%';
+
+            // फास्ट-स्टार्ट और जीरो-लेटेंसी के साथ MP4 री-एन्कोडिंग
+            await ffmpeg.run(
+                '-i', 'vid.mkv',
+                '-c:v', 'libx264',
+                '-preset', 'ultrafast',
+                '-tune', 'zerolatency',
+                '-movflags', '+faststart',
+                '-c:a', 'aac',
+                'out.mp4'
+            );
+
+            document.getElementById('transcodeBar').style.width = '100%';
+            document.getElementById('transcodeText').innerText = '100%';
+            document.getElementById('engineStatus').innerText = "▶️ वीडियो चालू है";
+
+            const outputData = ffmpeg.FS('readFile', 'out.mp4');
+            const blob = new Blob([outputData.buffer], { type: 'video/mp4' });
+            const finalBlobUrl = URL.createObjectURL(blob);
+
+            if (dp) dp.destroy();
+            dp = new DPlayer({
+                container: document.getElementById('dplayer'),
+                autoplay: true,
+                screenshot: true,
+                hotkey: true,
+                video: { url: finalBlobUrl, type: 'normal' }
+            });
+            dp.play();
+            printLog("वीडियो प्लेयर में सफलतापूर्वक लोड हो गया है।");
         }
     </script>
 </body>
