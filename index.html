@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced WASM Chunk Player</title>
+    <!-- GitHub पर हेडर्स इनेबल करने के लिए सर्विस वर्कर स्क्रिप्ट -->
+    <script src="coi-serviceworker.js"></script>
+    <!-- Tailwind CSS for UI -->
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <!-- DPlayer CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/dplayer/dist/DPlayer.min.css">
+    <style>
+        body { background: linear-gradient(135deg, #090d16 0%, #111827 100%); }
+    </style>
+</head>
+<body class="text-slate-100 min-h-screen flex flex-col items-center justify-center p-4">
+
+    <div class="w-full max-w-4xl bg-slate-900/90 border border-slate-800 rounded-2xl shadow-2xl p-6 space-y-6">
+        
+        <div class="text-center space-y-1">
+            <h1 class="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
+                WASM ऑन-द-फ्लाई डिकोडर प्लेयर
+            </h1>
+            <p class="text-xs text-slate-400">यह प्लेयर बैकग्राउंड में वीडियो को Chunks में लोड और ट्रांसकोड करता है</p>
+        </div>
+
+        <!-- Input URL Block -->
+        <div class="flex flex-col md:flex-row gap-3">
+            <input 
+                type="text" 
+                id="videoUrl" 
+                placeholder="यहाँ MKV, x265 या बिना एक्सटेंशन वाला डायरेक्ट लिंक डालें..." 
+                class="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+            />
+            <button 
+                onclick="startStreamingPlayback()" 
+                class="bg-cyan-600 hover:bg-cyan-500 font-semibold px-6 py-3 rounded-xl transition cursor-pointer text-sm whitespace-nowrap"
+            >
+                स्ट्रीम और प्ले करें
+            </button>
+        </div>
+
+        <!-- Status & Loader -->
+        <div id="statusMessage" class="hidden text-xs bg-slate-950 border border-slate-800 text-cyan-400 p-3 rounded-xl text-center font-mono">
+            इंजन लोड हो रहा है... कृपया प्रतीक्षा करें।
+        </div>
+
+        <!-- Video Player -->
+        <div class="overflow-hidden rounded-xl border border-slate-800 bg-black aspect-video">
+            <div id="dplayer" class="w-full h-full"></div>
+        </div>
+    </div>
+
+    <!-- Libraries: FFmpeg WASM & DPlayer -->
+    <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dplayer/dist/DPlayer.min.js"></script>
+
+    <script>
+        const { createFFmpeg, fetchFile } = FFmpeg;
+        let ffmpeg = null;
+        let dp = null;
+
+        // खाली प्लेयर इनिशियलाइज करें
+        dp = new DPlayer({
+            container: document.getElementById('dplayer'),
+            video: { url: '' },
+            theme: '#06b6d4'
+        });
+
+        function updateStatus(msg, show = true) {
+            const statusDiv = document.getElementById('statusMessage');
+            if (show) {
+                statusDiv.innerText = msg;
+                statusDiv.classList.remove('hidden');
+            } else {
+                statusDiv.classList.add('hidden');
+            }
+        }
+
+        async function startStreamingPlayback() {
+            const url = document.getElementById('videoUrl').value.trim();
+            if (!url) {
+                alert("कृपया पहले लिंक दर्ज करें!");
+                return;
+            }
+
+            updateStatus("⏳ FFmpeg WASM इंजन को सक्रिय किया जा रहा है...");
+
+            if (!ffmpeg) {
+                ffmpeg = createFFmpeg({ log: false });
+                await ffmpeg.load();
+            }
+
+            updateStatus("🚀 वीडियो चंक्स फेच किए जा रहे हैं और ट्रांसकोडिंग शुरू हो रही है...");
+
+            try {
+                // 1. ReadableStream के ज़रिए वीडियो का केवल शुरुआती हिस्सा (Chunk) डाउनलोड करना
+                const response = await fetch(url);
+                const reader = response.body.getReader();
+                
+                let chunks = [];
+                let receivedLength = 0;
+                
+                // शुरुआती 10-15 MB (या पहले कुछ चंक्स) लोड करें ताकि प्लेबैक तुरंत शुरू हो सके
+                while(true) {
+                    const {done, value} = await reader.read();
+                    if (done) break;
+                    
+                    chunks.push(value);
+                    receivedLength += value.length;
+                    
+                    // जैसे ही लगभग 12MB डेटा मिल जाए, लूप से बाहर निकलें (तुरंत प्ले करने के लिए)
+                    if (receivedLength > 12 * 1024 * 1024) {
+                        break;
+                    }
+                }
+
+                // चंक्स को मिलाकर एक सिंगल Uint8Array बनाएं
+                let initialBuffer = new Uint8Array(receivedLength);
+                let position = 0;
+                for(let chunk of chunks) {
+                    initialBuffer.set(chunk, position);
+                    position += chunk.length;
+                }
+
+                updateStatus("⚡ ब्राउज़र के अंदर वीडियो कनवर्ट हो रहा है (x265 -> x264)...");
+
+                // 2. इस इनपुट डेटा को FFmpeg के वर्चुअल फाइल सिस्टम में लिखें
+                ffmpeg.FS('writeFile', 'input_chunk.mkv', initialBuffer);
+
+                // 3. बिना पूरी फ़ाइल का वेट किए, इसे तेज़ी से MP4 (H264/AAC) में बदलें
+                // '-preset ultrafast' वीडियो को बिना समय गंवाए तुरंत प्रोसेस करता है
+                await ffmpeg.run('-i', 'input_chunk.mkv', '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac', 'output.mp4');
+
+                // 4. आउटपुट फ़ाइल को पढ़ें
+                const data = ffmpeg.FS('readFile', 'output.mp4');
+
+                // 5. इसे ब्लॉब (Blob) URL में बदलें जिसे प्लेयर पढ़ सके
+                const videoBlob = new Blob([data.buffer], { type: 'video/mp4' });
+                const videoObjectUrl = URL.createObjectURL(videoBlob);
+
+                // 6. पुराने प्लेयर को हटाकर नया कनवर्टेड वीडियो तुरंत प्ले करें
+                if (dp) dp.destroy();
+                
+                dp = new DPlayer({
+                    container: document.getElementById('dplayer'),
+                    autoplay: true,
+                    theme: '#06b6d4',
+                    video: {
+                        url: videoObjectUrl,
+                        type: 'normal'
+                    }
+                });
+
+                dp.play();
+                updateStatus("", false); // स्टेटस छुपाएं
+
+                // बची हुई फ़ाइल को बैकग्राउंड में फेच करने का लॉजिक यहाँ जोड़ा जा सकता है...
+                reader.cancel(); // फ़िलहाल स्ट्रीम बंद करें
+
+            } catch (error) {
+                console.error(error);
+                updateStatus("❌ त्रुटि: लिंक ब्लॉक है (CORS इशू) या कोडेक डिकोड नहीं हो सका।");
+            }
+        }
+    </script>
+</body>
+</html>
