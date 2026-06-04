@@ -3,49 +3,49 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>100% Secure No-Lock Universal Player</title>
+    <title>Extension Assisted WASM Player</title>
+    <script src="coi-serviceworker.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/dplayer/dist/DPlayer.min.css">
     <style>
-        body { background: linear-gradient(135deg, #020617 0%, #0f172a 100%); }
-        .glow-cyan { box-shadow: 0 0 15px rgba(6, 182, 212, 0.2); }
+        body { background: linear-gradient(135deg, #020617 0%, #0b1329 100%); }
     </style>
 </head>
-<body class="text-slate-100 min-h-screen flex flex-col items-center justify-center p-4 antialiased">
+<body class="text-slate-100 min-h-screen flex flex-col items-center justify-center p-4">
 
-    <div class="w-full max-w-4xl bg-slate-900/95 border border-slate-800 rounded-2xl shadow-2xl p-6 space-y-6 glow-cyan">
+    <div class="w-full max-w-4xl bg-slate-900/95 border border-slate-800 rounded-2xl shadow-2xl p-6 space-y-6">
         
         <div class="text-center space-y-1">
-            <h1 class="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
-                यूनिवर्सल ऑटो-डिकोडर (लाइटवेट वर्शन)
+            <h1 class="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-indigo-400 bg-clip-text text-transparent">
+                यूनिवर्सल डिकोडर (Extension Mode)
             </h1>
-            <p class="text-xs text-slate-400">सुरक्षा लॉक मुक्त तकनीक - गिटहब पेजेस के लिए विशेष रूप से अनुकूलित</p>
+            <p class="text-xs text-slate-400">CORS Extension ke sath 100% direct streaming</p>
         </div>
 
         <div class="flex flex-col md:flex-row gap-3">
             <input 
                 type="text" 
                 id="videoUrl" 
-                placeholder="यहाँ अपना MKV, x265 या Cloudflare Workers लिंक पेस्ट करें..." 
+                placeholder="Apna direct Cloudflare / Workers link yahan paste karein..." 
                 class="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 text-slate-200"
             />
             <button 
-                onclick="startLightweightProcessing()" 
-                class="bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-semibold px-6 py-3 rounded-xl transition cursor-pointer text-sm whitespace-nowrap active:scale-95"
+                onclick="playWithExtension()" 
+                class="bg-cyan-600 hover:bg-cyan-500 text-white font-semibold px-6 py-3 rounded-xl transition text-sm whitespace-nowrap active:scale-95"
             >
-                तुरंत प्ले करें
+                Direct Play
             </button>
         </div>
 
         <div id="dashboard" class="hidden bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-4 font-mono text-xs">
             <div class="flex justify-between border-b border-slate-900 pb-2">
-                <span class="text-slate-400">सिस्टम स्थिति:</span>
-                <span id="engineStatus" class="text-yellow-400 font-bold">कनेक्ट हो रहा है...</span>
+                <span class="text-slate-400">Engine Status:</span>
+                <span id="engineStatus" class="text-yellow-400 font-bold">Ready...</span>
             </div>
 
             <div class="space-y-1">
                 <div class="flex justify-between text-[11px]">
-                    <span class="text-cyan-400">➔ बफ़र डेटा डाउनलोड:</span>
+                    <span class="text-cyan-400">➔ Direct Download Progress:</span>
                     <span id="downloadText" class="text-slate-300">0 MB</span>
                 </div>
                 <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
@@ -53,8 +53,18 @@
                 </div>
             </div>
 
-            <div class="bg-black/40 border border-slate-900 rounded p-2 h-20 overflow-y-auto text-[10px] text-emerald-400 space-y-0.5" id="consoleLogs">
-                > क्लाइंट-साइड इंजन तैयार है...
+            <div class="space-y-1">
+                <div class="flex justify-between text-[11px]">
+                    <span class="text-indigo-400">➔ FFmpeg Wasm Decoding:</span>
+                    <span id="transcodeText" class="text-slate-300">0%</span>
+                </div>
+                <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                    <div id="transcodeBar" class="bg-indigo-500 h-full transition-all duration-300" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <div class="bg-black/40 border border-slate-900 rounded p-2 h-24 overflow-y-auto text-[10px] text-emerald-400" id="consoleLogs">
+                > Waiting for link...
             </div>
         </div>
 
@@ -71,121 +81,100 @@
         let ffmpeg = null;
         let dp = null;
 
-        // इनिशियल प्लेयर
         dp = new DPlayer({ container: document.getElementById('dplayer'), video: { url: '' }, theme: '#06b6d4' });
 
         function printLog(text) {
-            const logBox = document.getElementById('consoleLogs');
-            logBox.innerHTML += `<div>> ${text}</div>`;
-            logBox.scrollTop = logBox.scrollHeight;
+            const box = document.getElementById('consoleLogs');
+            box.innerHTML += `<div>> ${text}</div>`;
+            box.scrollTop = box.scrollHeight;
         }
 
-        async function startLightweightProcessing() {
-            const rawUrl = document.getElementById('videoUrl').value.trim();
-            if (!rawUrl) return alert("कृपया पहले लिंक पेस्ट करें!");
+        async function playWithExtension() {
+            if (typeof SharedArrayBuffer === "undefined") {
+                alert("Security lock lagna baaki hai. Kripya page par 'Ctrl + F5' dabayein.");
+                return;
+            }
 
-            // डैशबोर्ड सेटअप
+            const videoUrl = document.getElementById('videoUrl').value.trim();
+            if (!videoUrl) return alert("Link paste karein!");
+
             document.getElementById('dashboard').classList.remove('hidden');
             document.getElementById('downloadBar').style.width = '0%';
+            document.getElementById('transcodeBar').style.width = '0%';
             document.getElementById('downloadText').innerText = '0 MB';
+            document.getElementById('transcodeText').innerText = '0%';
             document.getElementById('consoleLogs').innerHTML = '';
-            document.getElementById('engineStatus').innerText = "🌐 नेटवर्क रूट तलाश रहे हैं...";
 
-            // ऑटो-प्रॉक्सी नेटवर्क रोटेशन (Cloudflare Workers बाईपास करने के लिए)
-            const proxies = [
-                (url) => "https://corsproxy.io/?" + encodeURIComponent(url),
-                (url) => "https://api.allorigins.win/raw?url=" + encodeURIComponent(url)
-            ];
-
-            let response = null;
-            let chunks = [];
-            let receivedLength = 0;
-            let targetSize = 15 * 1024 * 1024; // फास्ट लोडिंग के लिए बफ़र साइज 15MB सेट किया
-
-            // बेस्ट प्रॉक्सी से कनेक्ट करना
-            for (let i = 0; i < proxies.length; i++) {
-                let proxyUrl = proxies[i](rawUrl);
-                printLog(`नेटवर्क टनल #${i + 1} टेस्ट की जा रही है...`);
-                
-                try {
-                    response = await fetch(proxyUrl);
-                    if (!response.ok) throw new Error();
-
-                    const reader = response.body.getReader();
-                    chunks = [];
-                    receivedLength = 0;
-
-                    while (true) {
-                        const { done, value } = await reader.read();
-                        if (done) break;
-                        chunks.push(value);
-                        receivedLength += value.length;
-
-                        let mbs = (receivedLength / (1024 * 1024)).toFixed(2);
-                        let pct = Math.min((receivedLength / targetSize) * 100, 100).toFixed(0);
-                        document.getElementById('downloadText').innerText = `${mbs} MB`;
-                        document.getElementById('downloadBar').style.width = `${pct}%`;
-
-                        if (receivedLength >= targetSize) break;
-                    }
-                    reader.cancel();
-
-                    if (receivedLength > 500 * 1024) {
-                        printLog(`सफलता! टनल #${i + 1} से वैध डेटा प्राप्त हुआ।`);
-                        break;
-                    }
-                } catch (e) {
-                    printLog(`टनल #${i + 1} विफल।`);
-                }
-            }
-
-            if (receivedLength < 500 * 1024) {
-                document.getElementById('engineStatus').innerText = "❌ नेटवर्क कनेक्शन ब्लॉक है";
-                printLog("त्रुटि: लिंक एक्सपायर हो चुका है या सर्वर रिस्पॉन्स नहीं दे रहा है।");
-                return alert("डेटा फ़ेच करने में विफलता। कृपया नया डायरेक्ट लिंक आज़माएं।");
-            }
-
-            document.getElementById('engineStatus').innerText = "⚙️ कनवर्टिंग चालू है (No-Lock Engine)...";
-            printLog("डिकोडर इंजन लोड हो रहा है...");
+            document.getElementById('engineStatus').innerText = "⚡ Fetching Video via Extension...";
+            printLog("CORS Extension ke zariye direct network request bheji gayi...");
 
             try {
-                // सिंगल थ्रेडेड डिकोडर लोड करना
+                // Ab hum bina kisi proxy ke, seedhe aapke link ko fetch kar rahe hain
+                const response = await fetch(videoUrl);
+                if (!response.ok) throw new Error("Server responded with error status: " + response.status);
+
+                const reader = response.body.getReader();
+                let chunks = [];
+                let receivedLength = 0;
+                let targetSize = 25 * 1024 * 1024; // 25MB Buffer
+
+                while(true) {
+                    const {done, value} = await reader.read();
+                    if (done) break;
+                    chunks.push(value);
+                    receivedLength += value.length;
+                    
+                    let currentMB = (receivedLength / (1024 * 1024)).toFixed(2);
+                    let pct = Math.min((receivedLength / targetSize) * 100, 100).toFixed(0);
+                    document.getElementById('downloadText').innerText = `${currentMB} MB`;
+                    document.getElementById('downloadBar').style.width = `${pct}%`;
+
+                    if (receivedLength >= targetSize) break;
+                }
+                reader.cancel();
+
+                printLog(`Success! ${ (receivedLength/(1024*1024)).toFixed(2) } MB direct data downloaded successfully.`);
+
+                // FFmpeg Loading
+                document.getElementById('engineStatus').innerText = "⚙️ Decoding RAM Stream...";
                 if (!ffmpeg) {
-                    ffmpeg = createFFmpeg({ 
-                        log: false,
-                        corePath: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js' 
-                        // ऊपर दिया गया 'core-st' (Single Thread) बिना SharedArrayBuffer के चलता है!
+                    ffmpeg = createFFmpeg({ log: false });
+                    ffmpeg.setLogger(({ message }) => {
+                        if (message.includes('frame=')) {
+                            document.getElementById('transcodeText').innerText = "Processing frames...";
+                            document.getElementById('transcodeBar').style.width = '75%';
+                        }
                     });
                     await ffmpeg.load();
                 }
 
-                printLog("वर्चुअल मेमोरी असाइन की जा रही है...");
-                let u8Array = new Uint8Array(receivedLength);
-                let offset = 0;
-                for (let chunk of chunks) {
-                    u8Array.set(chunk, offset);
-                    offset += chunk.length;
+                let fileBuffer = new Uint8Array(receivedLength);
+                let pos = 0;
+                for(let chunk of chunks) {
+                    fileBuffer.set(chunk, pos);
+                    pos += chunk.length;
                 }
 
-                ffmpeg.FS('writeFile', 'movie.mkv', u8Array);
-                printLog("फास्ट-डिकोडिंग स्क्रिप्ट रन हो रही है...");
+                ffmpeg.FS('writeFile', 'input.mkv', fileBuffer);
+                document.getElementById('transcodeBar').style.width = '30%';
 
-                // अल्टीमेट फास्ट डिकोडिंग कमांड
+                // Transcoding to playable MP4
                 await ffmpeg.run(
-                    '-i', 'movie.mkv',
+                    '-i', 'input.mkv',
                     '-c:v', 'libx264',
                     '-preset', 'ultrafast',
                     '-tune', 'zerolatency',
                     '-movflags', '+faststart',
                     '-c:a', 'aac',
-                    'final.mp4'
+                    'out.mp4'
                 );
 
-                document.getElementById('engineStatus').innerText = "▶️ वीडियो तैयार है";
-                printLog("स्ट्रीमिंग ब्लॉब यूआरएल जेनरेट किया जा रहा है...");
+                document.getElementById('transcodeBar').style.width = '100%';
+                document.getElementById('transcodeText').innerText = '100%';
+                document.getElementById('engineStatus').innerText = "▶️ Playing Video";
 
-                const data = ffmpeg.FS('readFile', 'final.mp4');
-                const blob = new Blob([data.buffer], { type: 'video/mp4' });
+                const outputData = ffmpeg.FS('readFile', 'out.mp4');
+                const blob = new Blob([outputData.buffer], { type: 'video/mp4' });
                 const blobUrl = URL.createObjectURL(blob);
 
                 if (dp) dp.destroy();
@@ -197,12 +186,12 @@
                     video: { url: blobUrl, type: 'normal' }
                 });
                 dp.play();
-                printLog("बधाई! वीडियो सफलतापूर्वक प्ले हो गया है।");
+                printLog("Video started playing smoothly!");
 
             } catch (err) {
                 console.error(err);
-                document.getElementById('engineStatus').innerText = "❌ डिकोडिंग एरर";
-                printLog(`त्रुटि विवरण: ${err.message}`);
+                document.getElementById('engineStatus').innerText = "❌ Error Occurred";
+                printLog(`Error Details: ${err.message}`);
             }
         }
     </script>
