@@ -3,106 +3,143 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Advanced WASM Chunk Player</title>
-    <!-- GitHub पर हेडर्स इनेबल करने के लिए सर्विस वर्कर स्क्रिप्ट -->
+    <title>Live WASM Stream Decoder</title>
     <script src="coi-serviceworker.js"></script>
-    <!-- Tailwind CSS for UI -->
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-    <!-- DPlayer CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/dplayer/dist/DPlayer.min.css">
     <style>
-        body { background: linear-gradient(135deg, #090d16 0%, #111827 100%); }
+        body { background: linear-gradient(135deg, #020617 0%, #0f172a 100%); }
+        .progress-glow { box-shadow: 0 0 10px rgba(6, 182, 212, 0.5); }
     </style>
 </head>
-<body class="text-slate-100 min-h-screen flex flex-col items-center justify-center p-4">
+<body class="text-slate-100 min-h-screen flex flex-col items-center justify-center p-4 antialiased">
 
     <div class="w-full max-w-4xl bg-slate-900/90 border border-slate-800 rounded-2xl shadow-2xl p-6 space-y-6">
         
         <div class="text-center space-y-1">
-            <h1 class="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
-                WASM ऑन-द-फ्लाई डिकोडर प्लेयर
+            <h1 class="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-indigo-400 bg-clip-text text-transparent">
+                लाइव डिकोडर और प्रोग्रेस ट्रैकर
             </h1>
-            <p class="text-xs text-slate-400">यह प्लेयर बैकग्राउंड में वीडियो को Chunks में लोड और ट्रांसकोड करता है</p>
+            <p class="text-xs text-slate-400">बैकग्राउंड प्रोसेस, डाउनलोडिंग और डिकोडिंग की लाइव स्थिति देखें</p>
         </div>
 
-        <!-- Input URL Block -->
         <div class="flex flex-col md:flex-row gap-3">
             <input 
                 type="text" 
                 id="videoUrl" 
-                placeholder="यहाँ MKV, x265 या बिना एक्सटेंशन वाला डायरेक्ट लिंक डालें..." 
-                class="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                placeholder="यहाँ MKV / x265 का डायरेक्ट लिंक पेस्ट करें..." 
+                class="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 text-slate-200"
             />
             <button 
-                onclick="startStreamingPlayback()" 
-                class="bg-cyan-600 hover:bg-cyan-500 font-semibold px-6 py-3 rounded-xl transition cursor-pointer text-sm whitespace-nowrap"
+                onclick="processAndPlay()" 
+                class="bg-cyan-600 hover:bg-cyan-500 text-white font-semibold px-6 py-3 rounded-xl transition cursor-pointer text-sm whitespace-nowrap active:scale-95"
             >
-                स्ट्रीम और प्ले करें
+                प्रोसेस और प्ले करें
             </button>
         </div>
 
-        <!-- Status & Loader -->
-        <div id="statusMessage" class="hidden text-xs bg-slate-950 border border-slate-800 text-cyan-400 p-3 rounded-xl text-center font-mono">
-            इंजन लोड हो रहा है... कृपया प्रतीक्षा करें।
+        <div id="dashboard" class="hidden bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-4 font-mono text-xs">
+            <div class="flex justify-between border-b border-slate-800 pb-2">
+                <span class="text-slate-400">इंजन स्टेटस:</span>
+                <span id="engineStatus" class="text-yellow-400 font-bold">तैयार हो रहा है...</span>
+            </div>
+
+            <div class="space-y-1">
+                <div class="flex justify-between text-[11px]">
+                    <span class="text-cyan-400">1. बफ़र डाउनलोड प्रोग्रेस:</span>
+                    <span id="downloadText" class="text-slate-300">0 MB</span>
+                </div>
+                <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                    <div id="downloadBar" class="bg-cyan-500 h-full transition-all duration-300 progress-glow" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <div class="space-y-1">
+                <div class="flex justify-between text-[11px]">
+                    <span class="text-indigo-400">2. FFmpeg डिकोडिंग (x265 -> x264):</span>
+                    <span id="transcodeText" class="text-slate-300">शुरू नहीं हुआ</span>
+                </div>
+                <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                    <div id="transcodeBar" class="bg-indigo-500 h-full transition-all duration-300 progress-glow" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <div class="bg-black/50 border border-slate-900 rounded p-2 h-20 overflow-y-auto text-[10px] text-emerald-400 space-y-0.5" id="consoleLogs">
+                > सिस्टम कंसोल सक्रिय...
+            </div>
         </div>
 
-        <!-- Video Player -->
-        <div class="overflow-hidden rounded-xl border border-slate-800 bg-black aspect-video">
+        <div class="overflow-hidden rounded-xl border border-slate-800 bg-black aspect-video shadow-2xl">
             <div id="dplayer" class="w-full h-full"></div>
         </div>
     </div>
 
-    <!-- Libraries: FFmpeg WASM & DPlayer -->
     <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dplayer/dist/DPlayer.min.js"></script>
 
     <script>
-        const { createFFmpeg, fetchFile } = FFmpeg;
+        const { createFFmpeg } = FFmpeg;
         let ffmpeg = null;
         let dp = null;
 
-        // खाली प्लेयर इनिशियलाइज करें
+        // इनिशियल खाली प्लेयर
         dp = new DPlayer({
             container: document.getElementById('dplayer'),
             video: { url: '' },
             theme: '#06b6d4'
         });
 
-        function updateStatus(msg, show = true) {
-            const statusDiv = document.getElementById('statusMessage');
-            if (show) {
-                statusDiv.innerText = msg;
-                statusDiv.classList.remove('hidden');
-            } else {
-                statusDiv.classList.add('hidden');
-            }
+        function logToConsole(text) {
+            const consoleBox = document.getElementById('consoleLogs');
+            consoleBox.innerHTML += `<div>> ${text}</div>`;
+            consoleBox.scrollTop = consoleBox.scrollHeight;
         }
 
-        async function startStreamingPlayback() {
+        async function processAndPlay() {
             const url = document.getElementById('videoUrl').value.trim();
             if (!url) {
-                alert("कृपया पहले लिंक दर्ज करें!");
+                alert("कृपया पहले एक लिंक दर्ज करें!");
                 return;
             }
 
-            updateStatus("⏳ FFmpeg WASM इंजन को सक्रिय किया जा रहा है...");
+            // डैशबोर्ड रीसेट करें
+            document.getElementById('dashboard').classList.remove('hidden');
+            document.getElementById('downloadBar').style.width = '0%';
+            document.getElementById('transcodeBar').style.width = '0%';
+            document.getElementById('downloadText').innerText = '0 MB';
+            document.getElementById('transcodeText').innerText = '0%';
+            document.getElementById('consoleLogs').innerHTML = '';
+
+            document.getElementById('engineStatus').innerText = "⏳ इंजन लोड हो रहा है...";
+            logToConsole("FFmpeg core लोड किया जा रहा है...");
 
             if (!ffmpeg) {
                 ffmpeg = createFFmpeg({ log: false });
+                
+                // FFmpeg के इंटरनल लॉग्स को पकड़कर डिकोडिंग प्रोग्रेस दिखाना
+                ffmpeg.setLogger(({ type, message }) => {
+                    if (message.includes('frame=')) {
+                        document.getElementById('transcodeText').innerText = "प्रोसेसिंग फ्रेम सक्रिय...";
+                        document.getElementById('transcodeBar').style.width = '60%'; // इंटरनल रेंडरिंग एस्टीमेट
+                    }
+                    if(message.length < 100) logToConsole(`[FFmpeg] ${message}`);
+                });
+
                 await ffmpeg.load();
             }
 
-            updateStatus("🚀 वीडियो चंक्स फेच किए जा रहे हैं और ट्रांसकोडिंग शुरू हो रही है...");
+            document.getElementById('engineStatus').innerText = "⚡ वीडियो चंक्स डाउनलोड हो रहे हैं...";
+            logToConsole("नेटवर्क से वीडियो चंक्स फेच करना शुरू किया...");
 
             try {
-                // 1. ReadableStream के ज़रिए वीडियो का केवल शुरुआती हिस्सा (Chunk) डाउनलोड करना
+                // प्लेयर को बफ़रिंग मोड से बचाने के लिए 'faststart' फ्लैग के साथ फिक्सिंग ट्रिक्स
                 const response = await fetch(url);
                 const reader = response.body.getReader();
                 
                 let chunks = [];
                 let receivedLength = 0;
-                
-                // शुरुआती 10-15 MB (या पहले कुछ चंक्स) लोड करें ताकि प्लेबैक तुरंत शुरू हो सके
+                let targetSize = 25 * 1024 * 1024; // बफ़रिंग फिक्स करने के लिए इनिशियल साइज बढ़ाकर 25MB की गई
+
                 while(true) {
                     const {done, value} = await reader.read();
                     if (done) break;
@@ -110,13 +147,22 @@
                     chunks.push(value);
                     receivedLength += value.length;
                     
-                    // जैसे ही लगभग 12MB डेटा मिल जाए, लूप से बाहर निकलें (तुरंत प्ले करने के लिए)
-                    if (receivedLength > 12 * 1024 * 1024) {
+                    let mbDownloaded = (receivedLength / (1024 * 1024)).toFixed(2);
+                    let pct = Math.min((receivedLength / targetSize) * 100, 100).toFixed(0);
+                    
+                    document.getElementById('downloadText').innerText = `${mbDownloaded} MB`;
+                    document.getElementById('downloadBar').style.width = `${pct}%`;
+
+                    if (receivedLength >= targetSize) {
+                        logToConsole(`शुरुआती ${mbDownloaded} MB बफ़र सफ़लतापूर्वक डाउनलोड हुआ।`);
                         break;
                     }
                 }
+                reader.cancel(); // बाकी डाउनलोड रोकें
 
-                // चंक्स को मिलाकर एक सिंगल Uint8Array बनाएं
+                document.getElementById('engineStatus').innerText = "⚙️ कनवर्टिंग चालू है...";
+                logToConsole("वर्चुअल डिस्क पर इनपुट फाइल लिखी जा रही है...");
+
                 let initialBuffer = new Uint8Array(receivedLength);
                 let position = 0;
                 for(let chunk of chunks) {
@@ -124,29 +170,41 @@
                     position += chunk.length;
                 }
 
-                updateStatus("⚡ ब्राउज़र के अंदर वीडियो कनवर्ट हो रहा है (x265 -> x264)...");
+                ffmpeg.FS('writeFile', 'input.mkv', initialBuffer);
+                
+                document.getElementById('transcodeBar').style.width = '30%';
+                document.getElementById('transcodeText').innerText = 'डिकोडिंग शुरू...';
+                logToConsole("क्रॉस-कोडिंग कमांड रन हो रहा है (Fast-Start इनेबल्ड)...");
 
-                // 2. इस इनपुट डेटा को FFmpeg के वर्चुअल फाइल सिस्टम में लिखें
-                ffmpeg.FS('writeFile', 'input_chunk.mkv', initialBuffer);
+                // बफ़रिंग फिक्स करने के लिए सबसे महत्वपूर्ण कमांड:
+                // '-movflags +faststart' मेटाडेटा (moov atom) को फाइल के आगे धकेल देता है जिससे ब्राउज़र तुरंत प्ले कर देता है।
+                await ffmpeg.run(
+                    '-i', 'input.mkv',
+                    '-c:v', 'libx264',
+                    '-preset', 'ultrafast',
+                    '-tune', 'zerolatency',
+                    '-movflags', '+faststart',
+                    '-c:a', 'aac',
+                    'output.mp4'
+                );
 
-                // 3. बिना पूरी फ़ाइल का वेट किए, इसे तेज़ी से MP4 (H264/AAC) में बदलें
-                // '-preset ultrafast' वीडियो को बिना समय गंवाए तुरंत प्रोसेस करता है
-                await ffmpeg.run('-i', 'input_chunk.mkv', '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac', 'output.mp4');
+                document.getElementById('transcodeBar').style.width = '100%';
+                document.getElementById('transcodeText').innerText = '100% पूरा हुआ';
+                document.getElementById('engineStatus').innerText = "▶️ वीडियो प्ले हो रहा है";
+                logToConsole("सफलता! ब्लॉब यूआरएल जनरेट हो रहा है...");
 
-                // 4. आउटपुट फ़ाइल को पढ़ें
                 const data = ffmpeg.FS('readFile', 'output.mp4');
-
-                // 5. इसे ब्लॉब (Blob) URL में बदलें जिसे प्लेयर पढ़ सके
                 const videoBlob = new Blob([data.buffer], { type: 'video/mp4' });
                 const videoObjectUrl = URL.createObjectURL(videoBlob);
 
-                // 6. पुराने प्लेयर को हटाकर नया कनवर्टेड वीडियो तुरंत प्ले करें
+                // पुराने प्लेयर को रीसेट करके फ्रेश वीडियो इंजेक्ट करना
                 if (dp) dp.destroy();
                 
                 dp = new DPlayer({
                     container: document.getElementById('dplayer'),
                     autoplay: true,
                     theme: '#06b6d4',
+                    screenshot: true,
                     video: {
                         url: videoObjectUrl,
                         type: 'normal'
@@ -154,14 +212,12 @@
                 });
 
                 dp.play();
-                updateStatus("", false); // स्टेटस छुपाएं
-
-                // बची हुई फ़ाइल को बैकग्राउंड में फेच करने का लॉजिक यहाँ जोड़ा जा सकता है...
-                reader.cancel(); // फ़िलहाल स्ट्रीम बंद करें
+                logToConsole("वीडियो रेंडरिंग प्लेयर में सफलतापूर्वक शुरू हो गई।");
 
             } catch (error) {
                 console.error(error);
-                updateStatus("❌ त्रुटि: लिंक ब्लॉक है (CORS इशू) या कोडेक डिकोड नहीं हो सका।");
+                document.getElementById('engineStatus').innerText = "❌ एरर आया";
+                logToConsole(`त्रुटि: ${error.message}. कृपया चेक करें कि लिंक डायरेक्ट है या नहीं या CORS ब्लॉक तो नहीं है।`);
             }
         }
     </script>
